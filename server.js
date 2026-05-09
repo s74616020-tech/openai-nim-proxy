@@ -19,7 +19,7 @@ const MODEL_MAPPING = {
   'gpt-4': 'meta/llama-3.1-70b-instruct',
   'gpt-4-turbo': 'meta/llama-3.3-70b-instruct',
   'gpt-4o': 'meta/llama-3.3-70b-instruct',
-  'claude-3-opus': 'meta/llama-3.1-405b-instruct',
+  'claude-3-opus': 'meta/llama-3.3-70b-instruct',
   'claude-3-sonnet': 'meta/llama-3.1-70b-instruct',
   'gemini-pro': 'mistralai/mixtral-8x7b-instruct-v0.1'
 };
