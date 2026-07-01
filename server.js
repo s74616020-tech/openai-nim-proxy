@@ -180,6 +180,13 @@ app.post(['/chat/completions', '/v1/chat/completions'], async (req, res) => {
     console.error('API key present:', !!OPENROUTER_API_KEY);
     console.error('API key length:', OPENROUTER_API_KEY ? OPENROUTER_API_KEY.length : 0);
     console.error('API key first 8 chars:', OPENROUTER_API_KEY ? OPENROUTER_API_KEY.slice(0, 8) : 'none');
+    if (error.response?.data) {
+      try {
+        console.error('OpenRouter response body:', JSON.stringify(error.response.data));
+      } catch (e) {
+        console.error('OpenRouter response body (raw):', error.response.data);
+      }
+    }
     res.status(error.response?.status || 500).json({
       error: {
         message: error.message || 'Internal server error',
