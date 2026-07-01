@@ -60,14 +60,17 @@ app.post(['/chat/completions', '/v1/chat/completions'], async (req, res) => {
   try {
     const { model, messages, temperature, max_tokens, stream } = req.body;
 
-    let orModel = MODEL_MAPPING[model] || 'openrouter/free';
+    let orModel = MODEL_MAPPING[model] || 'meta-llama/llama-3.3-70b-instruct:free';
+
+    // openrouter/free doesn't support streaming, so force it off for that model
+    const useStream = (stream || false) && orModel !== 'openrouter/free';
 
     const orRequest = {
       model: orModel,
       messages: messages,
       temperature: temperature || 0.6,
       max_tokens: max_tokens || 9024,
-      stream: stream || false
+      stream: useStream
     };
 
     if (ENABLE_THINKING_MODE) {
@@ -81,10 +84,10 @@ app.post(['/chat/completions', '/v1/chat/completions'], async (req, res) => {
         'HTTP-Referer': 'https://openai-nim-proxy-1-421w.onrender.com',
         'X-Title': 'OpenAI to OpenRouter Proxy'
       },
-      responseType: stream ? 'stream' : 'json'
+      responseType: useStream ? 'stream' : 'json'
     });
 
-    if (stream) {
+    if (useStream) {
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
