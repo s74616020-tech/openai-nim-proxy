@@ -13,24 +13,24 @@ const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
 const MODEL_MAPPING = {
   'gpt-3.5-turbo': 'meta-llama/llama-3.1-8b-instruct:free',
-  'gpt-4': 'meta-llama/llama-3.1-70b-instruct',
-  'gpt-4-turbo': 'meta-llama/llama-3.3-70b-instruct',
-  'gpt-4o': 'meta-llama/llama-3.3-70b-instruct',
-  'claude-3-opus': 'meta-llama/llama-3.1-405b-instruct',
-  'claude-3-sonnet': 'meta-llama/llama-3.3-70b-instruct',
-  'gemini-pro': 'mistralai/mixtral-8x7b-instruct',
+  'gpt-4': 'meta-llama/llama-3.3-70b-instruct:free',
+  'gpt-4-turbo': 'meta-llama/llama-3.3-70b-instruct:free',
+  'gpt-4o': 'openai/gpt-oss-120b:free',
+  'claude-3-opus': 'nvidia/llama-3.1-nemotron-ultra-253b-v1:free',
+  'claude-3-sonnet': 'meta-llama/llama-3.3-70b-instruct:free',
+  'gemini-pro': 'google/gemma-4-31b-it:free',
 
   // Type these directly in Janitor AI
-  'openrouter/owl-alpha': 'openrouter/owl-alpha',
-  'deepseek/deepseek-chat': 'deepseek/deepseek-chat',
-  'deepseek/deepseek-v3': 'deepseek/deepseek-v3',
-  'meta-llama/llama-3.3-70b-instruct': 'meta-llama/llama-3.3-70b-instruct',
+  'meta-llama/llama-3.3-70b-instruct:free': 'meta-llama/llama-3.3-70b-instruct:free',
   'meta-llama/llama-3.1-8b-instruct:free': 'meta-llama/llama-3.1-8b-instruct:free',
-  'mistralai/mistral-large': 'mistralai/mistral-large',
-  'mistralai/mixtral-8x7b-instruct': 'mistralai/mixtral-8x7b-instruct'
+  'openai/gpt-oss-120b:free': 'openai/gpt-oss-120b:free',
+  'nvidia/llama-3.1-nemotron-ultra-253b-v1:free': 'nvidia/llama-3.1-nemotron-ultra-253b-v1:free',
+  'google/gemma-4-31b-it:free': 'google/gemma-4-31b-it:free',
+  'deepseek/deepseek-r1:free': 'deepseek/deepseek-r1:free',
+  'mistralai/mistral-small-3.2-24b-instruct:free': 'mistralai/mistral-small-3.2-24b-instruct:free'
 };
 
-const DEFAULT_MODEL = 'meta-llama/llama-3.3-70b-instruct';
+const DEFAULT_MODEL = 'meta-llama/llama-3.3-70b-instruct:free';
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', service: 'OpenRouter Proxy' });
