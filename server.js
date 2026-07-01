@@ -16,7 +16,7 @@ const MODEL_MAPPING = {
   'gpt-4': 'meta-llama/llama-3.3-70b-instruct:free',
   'gpt-4-turbo': 'meta-llama/llama-3.3-70b-instruct:free',
   'gpt-4o': 'openai/gpt-oss-120b:free',
-  'claude-3-opus': 'nvidia/llama-3.1-nemotron-ultra-253b-v1:free',
+  'claude-3-opus': 'nvidia/nemotron-3-ultra-550b-a55b:free',
   'claude-3-sonnet': 'meta-llama/llama-3.3-70b-instruct:free',
   'gemini-pro': 'google/gemma-4-31b-it:free',
 
