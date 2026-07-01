@@ -15,15 +15,26 @@ const SHOW_REASONING = false;
 const ENABLE_THINKING_MODE = false;
 
 // Map fake OpenAI model names to real OpenRouter model names
+// You can also type these real names directly in Janitor AI
 // Browse available models at https://openrouter.ai/models
 const MODEL_MAPPING = {
   'gpt-3.5-turbo': 'meta-llama/llama-3.1-8b-instruct',
   'gpt-4': 'meta-llama/llama-3.1-70b-instruct',
   'gpt-4-turbo': 'meta-llama/llama-3.3-70b-instruct',
-  'gpt-4o': 'openrouter/owl-alpha',
+  'gpt-4o': 'openrouter/free',
   'claude-3-opus': 'meta-llama/llama-3.1-405b-instruct',
   'claude-3-sonnet': 'meta-llama/llama-3.3-70b-instruct',
-  'gemini-pro': 'mistralai/mixtral-8x7b-instruct'
+  'gemini-pro': 'mistralai/mixtral-8x7b-instruct',
+
+  // Real OpenRouter model names — type these directly in Janitor AI
+  'openrouter/free': 'openrouter/free',
+  'openrouter/owl-alpha': 'openrouter/owl-alpha',
+  'deepseek/deepseek-chat': 'deepseek/deepseek-chat',
+  'deepseek/deepseek-v3': 'deepseek/deepseek-v3',
+  'meta-llama/llama-3.3-70b-instruct': 'meta-llama/llama-3.3-70b-instruct',
+  'meta-llama/llama-3.1-405b-instruct': 'meta-llama/llama-3.1-405b-instruct',
+  'mistralai/mistral-large': 'mistralai/mistral-large',
+  'mistralai/mixtral-8x7b-instruct': 'mistralai/mixtral-8x7b-instruct'
 };
 
 app.get('/health', (req, res) => {
@@ -49,7 +60,7 @@ app.post(['/chat/completions', '/v1/chat/completions'], async (req, res) => {
   try {
     const { model, messages, temperature, max_tokens, stream } = req.body;
 
-    let orModel = MODEL_MAPPING[model] || 'openrouter/owl-alpha';
+    let orModel = MODEL_MAPPING[model] || 'openrouter/free';
 
     const orRequest = {
       model: orModel,
