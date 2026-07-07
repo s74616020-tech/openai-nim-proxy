@@ -20,6 +20,9 @@ const SHOW_REASONING = false; // Set to true to show reasoning with <think> tags
 // 🔥 THINKING MODE TOGGLE - Enables thinking for specific models that support it
 const ENABLE_THINKING_MODE = false; // Set to true to enable chat_template_kwargs thinking parameter
 
+// Fallback model used when the incoming `model` isn't one of our known aliases
+const FALLBACK_MODEL = 'deepseek-ai/deepseek-v4-flash';
+
 // Model mapping (adjust based on available NIM models)
 const MODEL_MAPPING = {
   'gpt-3.5-turbo': 'nvidia/llama-3.1-nemotron-ultra-253b-v1',
@@ -37,7 +40,8 @@ app.get('/health', (req, res) => {
     status: 'ok',
     service: 'OpenAI to NVIDIA NIM Proxy',
     reasoning_display: SHOW_REASONING,
-    thinking_mode: ENABLE_THINKING_MODE
+    thinking_mode: ENABLE_THINKING_MODE,
+    fallback_model: FALLBACK_MODEL
   });
 });
 
@@ -58,17 +62,23 @@ app.get('/v1/models', (req, res) => {
 
 // Chat completions endpoint (main proxy)
 app.post(['/chat/completions', '/v1/chat/completions'], async (req, res) => {
+  let streamRequested = false;
+
   try {
     const { model, messages, temperature, max_tokens, stream } = req.body;
+    streamRequested = !!stream;
 
-    let nimModel = MODEL_MAPPING[model] || 'meta/llama-3.3-70b-instruct';
+    // If the incoming model isn't one of our known OpenAI-style aliases,
+    // pass it straight through (it's probably already a valid NIM model id
+    // like "deepseek-ai/deepseek-v4-flash") instead of silently mapping it.
+    let nimModel = MODEL_MAPPING[model] || model || FALLBACK_MODEL;
 
     const nimRequest = {
       model: nimModel,
       messages: messages,
       temperature: temperature || 0.6,
       max_tokens: max_tokens || 9024,
-      stream: stream || false
+      stream: streamRequested
     };
 
     if (ENABLE_THINKING_MODE) {
@@ -81,14 +91,17 @@ app.post(['/chat/completions', '/v1/chat/completions'], async (req, res) => {
         'Authorization': `Bearer ${NIM_API_KEY}`,
         'Content-Type': 'application/json'
       },
-      responseType: stream ? 'stream' : 'json'
+      responseType: streamRequested ? 'stream' : 'json',
+      timeout: 60000 // fail fast instead of hanging forever if NIM stalls
     });
 
-    if (stream) {
+    if (streamRequested) {
       // Handle streaming response with reasoning
       res.setHeader('Content-Type', 'text/event-stream');
-      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Cache-Control', 'no-cache, no-transform');
       res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no'); // prevent Render/nginx from buffering the stream
+      res.flushHeaders(); // send headers immediately instead of waiting for first chunk
 
       let buffer = '';
       let reasoningStarted = false;
@@ -101,7 +114,7 @@ app.post(['/chat/completions', '/v1/chat/completions'], async (req, res) => {
         lines.forEach(line => {
           if (line.startsWith('data: ')) {
             if (line.includes('[DONE]')) {
-              res.write(line + '\n');
+              res.write(line + '\n\n'); // must match SSE event framing (blank line terminator)
               return;
             }
 
@@ -139,7 +152,7 @@ app.post(['/chat/completions', '/v1/chat/completions'], async (req, res) => {
               }
               res.write(`data: ${JSON.stringify(data)}\n\n`);
             } catch (e) {
-              res.write(line + '\n');
+              res.write(line + '\n\n');
             }
           }
         });
@@ -147,8 +160,13 @@ app.post(['/chat/completions', '/v1/chat/completions'], async (req, res) => {
 
       response.data.on('end', () => res.end());
       response.data.on('error', (err) => {
-        console.error('Stream error:', err);
-        res.end();
+        console.error('Stream error:', err.message);
+        if (!res.writableEnded) {
+          // Let the client know the stream died instead of just going silent
+          res.write(`data: ${JSON.stringify({ error: { message: 'Upstream stream error', detail: err.message } })}\n\n`);
+          res.write('data: [DONE]\n\n');
+          res.end();
+        }
       });
     } else {
       // Transform NIM response to OpenAI format with reasoning
@@ -184,15 +202,42 @@ app.post(['/chat/completions', '/v1/chat/completions'], async (req, res) => {
     }
 
   } catch (error) {
-    console.error('Proxy error:', error.message);
+    let errBody = error.message;
 
-    res.status(error.response?.status || 500).json({
-      error: {
-        message: error.message || 'Internal server error',
-        type: 'invalid_request_error',
-        code: error.response?.status || 500
+    // When responseType is 'stream', an error response's body is itself a
+    // readable stream, not parsed JSON — read it so the real NIM error shows
+    // up in logs instead of just "Request failed with status code XXX".
+    if (streamRequested && error.response?.data?.readable) {
+      try {
+        const chunks = [];
+        for await (const chunk of error.response.data) chunks.push(chunk);
+        errBody = Buffer.concat(chunks).toString();
+      } catch (readErr) {
+        errBody = `${error.message} (also failed to read error body: ${readErr.message})`;
       }
-    });
+    } else if (error.response?.data) {
+      errBody = typeof error.response.data === 'string'
+        ? error.response.data
+        : JSON.stringify(error.response.data);
+    }
+
+    console.error('Proxy error:', errBody);
+
+    if (!res.headersSent) {
+      res.status(error.response?.status || 500).json({
+        error: {
+          message: errBody || 'Internal server error',
+          type: 'invalid_request_error',
+          code: error.response?.status || 500
+        }
+      });
+    } else if (!res.writableEnded) {
+      // Headers/stream already started — can't send a JSON error body now,
+      // so end the stream cleanly instead of hanging.
+      res.write(`data: ${JSON.stringify({ error: { message: errBody } })}\n\n`);
+      res.write('data: [DONE]\n\n');
+      res.end();
+    }
   }
 });
 
@@ -212,4 +257,5 @@ app.listen(PORT, () => {
   console.log(`Health check: http://localhost:${PORT}/health`);
   console.log(`Reasoning display: ${SHOW_REASONING ? 'ENABLED' : 'DISABLED'}`);
   console.log(`Thinking mode: ${ENABLE_THINKING_MODE ? 'ENABLED' : 'DISABLED'}`);
+  console.log(`Fallback model: ${FALLBACK_MODEL}`);
 });
