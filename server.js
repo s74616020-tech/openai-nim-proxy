@@ -34,6 +34,65 @@ const MODEL_MAPPING = {
   'gemini-pro': 'qwen/qwen3-next-80b-a3b-thinking'
 };
 
+// If the requested model is overloaded (ResourceExhausted / 429 / 503), we
+// retry it a couple of times with backoff, then fall through to the next
+// model in this chain. The originally-requested model is always tried first;
+// these are just backup options if NIM's capacity for it is maxed out.
+const FALLBACK_CHAIN = [
+  'deepseek-ai/deepseek-v4-flash',
+  'deepseek-ai/deepseek-v3.1',
+  'meta/llama-3.3-70b-instruct'
+];
+
+const MAX_RETRIES_PER_MODEL = 2; // retries on the same model before moving on
+const RETRY_BASE_DELAY_MS = 800; // backoff: 800ms, 1600ms, ...
+
+function isCapacityError(err) {
+  const msg = err.response?.data?.error?.message || err.message || '';
+  return (
+    err.response?.status === 429 ||
+    err.response?.status === 503 ||
+    /ResourceExhausted/i.test(msg) ||
+    /rate.?limit/i.test(msg)
+  );
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Tries `primaryModel` first, retrying on capacity errors with backoff, then
+// falls through the rest of FALLBACK_CHAIN if it stays overloaded. Non-capacity
+// errors (bad request, auth, etc.) are thrown immediately with no retry/fallback.
+async function postToNimWithFallback(baseRequest, axiosConfig, primaryModel) {
+  const chain = [primaryModel, ...FALLBACK_CHAIN.filter((m) => m !== primaryModel)];
+  let lastError;
+
+  for (const candidateModel of chain) {
+    const requestBody = { ...baseRequest, model: candidateModel };
+
+    for (let attempt = 0; attempt <= MAX_RETRIES_PER_MODEL; attempt++) {
+      try {
+        const response = await axios.post(`${NIM_API_BASE}/chat/completions`, requestBody, axiosConfig);
+        return { response, modelUsed: candidateModel };
+      } catch (err) {
+        lastError = err;
+
+        if (!isCapacityError(err)) {
+          throw err; // real error (bad request, auth, etc.) — don't retry or fall back
+        }
+
+        if (attempt < MAX_RETRIES_PER_MODEL) {
+          console.warn(`${candidateModel} at capacity, retrying in ${RETRY_BASE_DELAY_MS * (attempt + 1)}ms (attempt ${attempt + 1}/${MAX_RETRIES_PER_MODEL})`);
+          await sleep(RETRY_BASE_DELAY_MS * (attempt + 1));
+        } else {
+          console.warn(`${candidateModel} still at capacity after ${MAX_RETRIES_PER_MODEL} retries, falling back to next model`);
+        }
+      }
+    }
+  }
+
+  throw lastError;
+}
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({
@@ -85,15 +144,20 @@ app.post(['/chat/completions', '/v1/chat/completions'], async (req, res) => {
       nimRequest.extra_body = { chat_template_kwargs: { thinking: true } };
     }
 
-    // Make request to NVIDIA NIM API
-    const response = await axios.post(`${NIM_API_BASE}/chat/completions`, nimRequest, {
+    // Make request to NVIDIA NIM API, retrying/falling back on capacity errors
+    const { response, modelUsed } = await postToNimWithFallback(nimRequest, {
       headers: {
         'Authorization': `Bearer ${NIM_API_KEY}`,
         'Content-Type': 'application/json'
       },
       responseType: streamRequested ? 'stream' : 'json',
       timeout: 60000 // fail fast instead of hanging forever if NIM stalls
-    });
+    }, nimModel);
+
+    if (modelUsed !== nimModel) {
+      console.log(`Requested ${nimModel} was unavailable, served by ${modelUsed} instead`);
+    }
+    res.setHeader('X-Model-Used', modelUsed); // harmless for clients, useful for your own debugging
 
     if (streamRequested) {
       // Handle streaming response with reasoning
