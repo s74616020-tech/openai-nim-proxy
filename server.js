@@ -6,6 +6,15 @@ const axios = require('axios');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Prevent one bad request (e.g. an error thrown inside a streaming callback)
+// from crashing the whole process and dropping every other in-flight request.
+process.on('uncaughtException', (err) => {
+  console.error('UNCAUGHT EXCEPTION (process kept alive):', err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('UNHANDLED REJECTION (process kept alive):', reason);
+});
+
 // Middleware
 app.use(cors());
 app.use(express.json());
