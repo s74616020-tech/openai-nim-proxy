@@ -225,18 +225,49 @@ app.post(['/chat/completions', '/v1/chat/completions'], async (req, res) => {
     }
 
   } catch (error) {
-    // Log the full detail NVIDIA sent back, not just axios's generic summary
-    console.error('Proxy error:', JSON.stringify(error.response?.data || error.message, null, 2));
+    // If this was a streaming request, NVIDIA's error body arrives as a raw
+    // stream (not parsed JSON) — stringifying it directly crashes with a
+    // "circular structure" error. Read it into text safely first.
+    let errorDetail = error.message || 'Internal server error';
 
-    res.status(error.response?.status || 500).json({
-      error: {
-        message: error.response?.data
-          ? (typeof error.response.data === 'string' ? error.response.data : JSON.stringify(error.response.data))
-          : (error.message || 'Internal server error'),
-        type: 'invalid_request_error',
-        code: error.response?.status || 500
+    if (error.response?.data) {
+      const data = error.response.data;
+      if (typeof data === 'string') {
+        errorDetail = data;
+      } else if (typeof data.pipe === 'function' || typeof data.on === 'function') {
+        // It's a stream — read it into a string
+        try {
+          errorDetail = await new Promise((resolve, reject) => {
+            let raw = '';
+            data.on('data', (chunk) => { raw += chunk.toString(); });
+            data.on('end', () => resolve(raw || 'Empty error response from upstream'));
+            data.on('error', reject);
+          });
+        } catch (streamErr) {
+          errorDetail = 'Failed to read upstream error stream: ' + streamErr.message;
+        }
+      } else {
+        try {
+          errorDetail = JSON.stringify(data);
+        } catch (e) {
+          errorDetail = '[Unserializable error response from upstream]';
+        }
       }
-    });
+    }
+
+    console.error('Proxy error:', errorDetail);
+
+    if (!res.headersSent) {
+      res.status(error.response?.status || 500).json({
+        error: {
+          message: errorDetail,
+          type: 'invalid_request_error',
+          code: error.response?.status || 500
+        }
+      });
+    } else {
+      res.end();
+    }
   }
 });
 
