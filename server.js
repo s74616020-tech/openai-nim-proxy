@@ -216,11 +216,14 @@ app.post(['/chat/completions', '/v1/chat/completions'], async (req, res) => {
     }
 
   } catch (error) {
-    console.error('Proxy error:', error.message);
+    // Log the full detail NVIDIA sent back, not just axios's generic summary
+    console.error('Proxy error:', JSON.stringify(error.response?.data || error.message, null, 2));
 
     res.status(error.response?.status || 500).json({
       error: {
-        message: error.message || 'Internal server error',
+        message: error.response?.data
+          ? (typeof error.response.data === 'string' ? error.response.data : JSON.stringify(error.response.data))
+          : (error.message || 'Internal server error'),
         type: 'invalid_request_error',
         code: error.response?.status || 500
       }
